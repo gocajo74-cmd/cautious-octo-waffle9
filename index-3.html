@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decision Analysis</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #64748b;
+      --line: #dce3ed;
+      --panel: #fff;
+      --background: #f4f7fb;
+      --accent: #2457d6;
+      --accent-light: #edf3ff;
+      --green: #087443;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--ink);
+      font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 56px; }
+    h1 { margin: 0 0 6px; font-size: clamp(1.7rem, 4vw, 2.3rem); }
+    h2 { margin: 0 0 14px; font-size: 1.1rem; }
+    p { margin: 0 0 16px; color: var(--muted); }
+    .panel {
+      margin-top: 18px;
+      padding: 20px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 3px 12px #17203308;
+    }
+    .toolbar, .controls, .actions, .result-heading {
+      display: flex;
+      align-items: end;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .toolbar { justify-content: space-between; align-items: center; }
+    .controls { margin-top: 12px; }
+    label { display: grid; gap: 5px; font-weight: 650; }
+    input, select, button {
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }
+    input[type="number"] { width: 110px; }
+    input.name-input { width: 155px; }
+    input.cell-input { width: 110px; }
+    button { cursor: pointer; font-weight: 650; }
+    button:hover { border-color: var(--accent); }
+    button.primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+    button.danger { color: #a52e32; }
+    .small-button { min-height: 32px; padding: 4px 9px; font-size: .88rem; }
+    .table-wrap { overflow-x: auto; margin-top: 14px; }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    th, td { padding: 9px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { background: #f8faff; font-size: .88rem; white-space: nowrap; }
+    td input { display: block; }
+    .probability-row th, .probability-row td { background: var(--accent-light); }
+    .hint { margin-top: 10px; font-size: .9rem; }
+    .badge {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--accent-light);
+      color: var(--accent);
+      font-size: .84rem;
+      font-weight: 700;
+    }
+    .winner {
+      margin-top: 14px;
+      padding: 15px;
+      border: 1px solid #a7dfc3;
+      border-radius: 9px;
+      background: #effbf5;
+    }
+    .winner strong { color: var(--green); }
+    .metric { color: var(--muted); font-size: .88rem; }
+    .rank-number { color: var(--muted); font-weight: 700; }
+    .selected-row { background: #effbf5; }
+    .empty { color: var(--muted); padding: 16px 0; }
+    @media (max-width: 650px) {
+      main { padding: 22px 12px 40px; }
+      .panel { padding: 15px; }
+      .controls > label { flex: 1 1 160px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Decision Analysis</h1>
+  <p>Enter alternatives and states of nature, then compare payoff or cost decisions using common decision criteria.</p>
+
+  <section class="panel">
+    <div class="toolbar">
+      <div>
+        <h2>Decision matrix</h2>
+        <p style="margin:0">Enter a value for each alternative and state. Probabilities are normalized for EMV calculations.</p>
+      </div>
+      <div class="actions">
+        <button id="addAlternative" type="button">＋ Add alternative</button>
+        <button id="addState" type="button">＋ Add state</button>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label>
+        Objective
+        <select id="objective">
+          <option value="payoff">Payoffs / benefits (maximize)</option>
+          <option value="cost">Costs (minimize)</option>
+        </select>
+      </label>
+      <label>
+        Decision criterion
+        <select id="criterion">
+          <option value="maximax">Maximax — optimistic</option>
+          <option value="minimax">Minimax — conservative / minimize worst case</option>
+          <option value="regret">Minimax regret</option>
+          <option value="emv">EMV — expected monetary value</option>
+        </select>
+      </label>
+      <label>
+        Select ranked alternative
+        <input id="rank" type="number" min="1" value="1">
+      </label>
+      <label>
+        Import CSV
+        <input id="csvFile" type="file" accept=".csv,text/csv">
+      </label>
+      <button id="downloadCsv" type="button">Download CSV template</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="matrix"></table>
+    </div>
+    <p class="hint">CSV format: first row contains a first-column label (for example, “Alternative”) followed by state names; each following row contains an alternative name and its numeric values. Set probabilities in the page after importing.</p>
+    <div id="probabilityNote" class="hint"></div>
+  </section>
+
+  <section class="panel">
+    <div class="result-heading">
+      <h2 style="margin:0">Results</h2>
+      <span id="criterionBadge" class="badge"></span>
+    </div>
+    <div id="winner" class="winner" aria-live="polite"></div>
+    <div class="table-wrap">
+      <table id="results"></table>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  let states = [
+    { name: "State 1", probability: 0.33 },
+    { name: "State 2", probability: 0.33 },
+    { name: "State 3", probability: 0.34 }
+  ];
+  let alternatives = [
+    { name: "Alternative 1", values: [80, 20, -10] },
+    { name: "Alternative 2", values: [45, 40, 25] },
+    { name: "Alternative 3", values: [100, 10, -30] }
+  ];
+
+  const matrix = document.getElementById("matrix");
+  const results = document.getElementById("results");
+  const objectiveEl = document.getElementById("objective");
+  const criterionEl = document.getElementById("criterion");
+  const rankEl = document.getElementById("rank");
+
+  const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[char]);
+
+  const numberValue = value => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  };
+
+  function renderMatrix() {
+    let html = `<thead><tr><th>Alternative / state</th>`;
+    states.forEach((state, index) => {
+      html += `<th><input class="name-input state-name" data-index="${index}" aria-label="State ${index + 1} name" value="${escapeHtml(state.name)}">
+        <button class="small-button danger remove-state" data-index="${index}" type="button" aria-label="Remove ${escapeHtml(state.name)}">×</button></th>`;
+    });
+    html += `<th></th></tr></thead><tbody>`;
+    html += `<tr class="probability-row"><th>Probability</th>`;
+    states.forEach((state, index) => {
+      html += `<td><input class="cell-input probability" data-index="${index}" type="number" step="any" min="0" value="${state.probability}" aria-label="Probability for ${escapeHtml(state.name)}"></td>`;
+    });
+    html += `<td></td></tr>`;
+
+    alternatives.forEach((alternative, row) => {
+      html += `<tr><th><input class="name-input alternative-name" data-index="${row}" aria-label="Alternative ${row + 1} name" value="${escapeHtml(alternative.name)}"></th>`;
+      states.forEach((state, col) => {
+        html += `<td><input class="cell-input cell-value" data-row="${row}" data-col="${col}" type="number" step="any" value="${numberValue(alternative.values[col])}" aria-label="${escapeHtml(alternative.name)}, ${escapeHtml(state.name)}"></td>`;
+      });
+      html += `<td><button class="small-button danger remove-alternative" data-index="${row}" type="button">Remove</button></td></tr>`;
+    });
+    html += `</tbody>`;
+    matrix.innerHTML = html;
+    calculate();
+  }
+
+  function getProbabilities() {
+    const raw = states.map(state => Math.max(0, numberValue(state.probability)));
+    const total = raw.reduce((sum, value) => sum + value, 0);
+    return total > 0 ? raw.map(value => value / total) : raw.map(() => 1 / raw.length);
+  }
+
+  function calculate() {
+    if (!alternatives.length || !states.length) return;
+    const isCost = objectiveEl.value === "cost";
+    const probabilities = getProbabilities();
+    const rows = alternatives.map(alternative =>
+      states.map((_, index) => numberValue(alternative.values[index]))
+    );
+    const best = states.map((_, col) => isCost
+      ? Math.min(...rows.map(row => row[col]))
+      : Math.max(...rows.map(row => row[col]))
+    );
+    const worst = states.map((_, col) => isCost
+      ? Math.max(...rows.map(row => row[col]))
+      : Math.min(...rows.map(row => row[col]))
+    );
+
+    const metrics = rows.map(row => {
+      const rowBest = isCost ? Math.min(...row) : Math.max(...row);
+      const rowWorst = isCost ? Math.max(...row) : Math.min(...row);
+      const emv = row.reduce((sum, value, col) => sum + value * probabilities[col], 0);
+      const regrets = row.map((value, col) => isCost ? value - best[col] : best[col] - value);
+      return {
+        best: rowBest,
+        worst: rowWorst,
+        emv,
+        maxRegret: Math.max(...regrets),
+        regrets
+      };
+    });
+
+    const criterion = criterionEl.value;
+    const direction = criterion === "maximax"
+      ? (isCost ? "min" : "max")
+      : criterion === "minimax"
+        ? (isCost ? "min" : "max")
+        : criterion === "emv" ? (isCost ? "min" : "max") : "min";
+
+    const scoreFor = metric => {
+      if (criterion === "maximax") return metric.best;
+      if (criterion === "minimax") return metric.worst;
+      if (criterion === "regret") return metric.maxRegret;
+      return metric.emv;
+    };
+
+    const ranked = alternatives.map((alternative, index) => ({
+      alternative, index, metric: metrics[index], score: scoreFor(metrics[index])
+    })).sort((a, b) => {
+      const difference = direction === "max" ? b.score - a.score : a.score - b.score;
+      return difference || a.index - b.index;
+    });
+
+    const rank = Math.max(1, Math.min(ranked.length, Math.floor(numberValue(rankEl.value) || 1)));
+    rankEl.max = String(ranked.length);
+    if (Number(rankEl.value) > ranked.length) rankEl.value = String(ranked.length);
+    const chosen = ranked[rank - 1];
+
+    const labels = {
+      maximax: "Maximax",
+      minimax: "Minimax",
+      regret: "Minimax regret",
+      emv: "EMV"
+    };
+    document.getElementById("criterionBadge").textContent = labels[criterion];
+    document.getElementById("winner").innerHTML =
+      `<strong>Selected: ${escapeHtml(chosen.alternative.name)}</strong> — ranked #${rank} by ${labels[criterion]}.
+       <span class="metric">Criterion score: ${formatNumber(chosen.score)}</span>`;
+
+    let html = `<thead><tr>
+      <th>Rank</th><th>Alternative</th><th>Maximax</th><th>Minimax</th>
+      <th>Maximum regret</th><th>EMV / expected cost</th><th>Selected criterion score</th>
+    </tr></thead><tbody>`;
+    ranked.forEach((item, position) => {
+      const metric = item.metric;
+      html += `<tr class="${position === rank - 1 ? "selected-row" : ""}">
+        <td class="rank-number">#${position + 1}</td>
+        <td>${escapeHtml(item.alternative.name)}</td>
+        <td>${formatNumber(metric.best)}</td>
+        <td>${formatNumber(metric.worst)}</td>
+        <td>${formatNumber(metric.maxRegret)}</td>
+        <td>${formatNumber(metric.emv)}</td>
+        <td><strong>${formatNumber(item.score)}</strong></td>
+      </tr>`;
+    });
+    html += `</tbody>`;
+    results.innerHTML = html;
+
+    const total = states.reduce((sum, state) => sum + Math.max(0, numberValue(state.probability)), 0);
+    document.getElementById("probabilityNote").textContent =
+      total > 0
+        ? `Entered probabilities total ${formatNumber(total)}; they are normalized to 100% for EMV.`
+        : "All probabilities are zero; EMV uses equal probabilities until you enter positive values.";
+  }
+
+  function formatNumber(value) {
+    return Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 });
+  }
+
+  matrix.addEventListener("input", event => {
+    const target = event.target;
+    const index = Number(target.dataset.index);
+    if (target.classList.contains("state-name")) states[index].name = target.value;
+    if (target.classList.contains("alternative-name")) alternatives[index].name = target.value;
+    if (target.classList.contains("probability")) states[index].probability = numberValue(target.value);
+    if (target.classList.contains("cell-value")) {
+      alternatives[Number(target.dataset.row)].values[Number(target.dataset.col)] = numberValue(target.value);
+    }
+    if (target.matches("input")) calculate();
+  });
+
+  matrix.addEventListener("click", event => {
+    const target = event.target;
+    if (target.classList.contains("remove-state") && states.length > 1) {
+      const index = Number(target.dataset.index);
+      states.splice(index, 1);
+      alternatives.forEach(alternative => alternative.values.splice(index, 1));
+      renderMatrix();
+    }
+    if (target.classList.contains("remove-alternative") && alternatives.length > 1) {
+      alternatives.splice(Number(target.dataset.index), 1);
+      renderMatrix();
+    }
+  });
+
+  document.getElementById("addAlternative").addEventListener("click", () => {
+    alternatives.push({
+      name: `Alternative ${alternatives.length + 1}`,
+      values: states.map(() => 0)
+    });
+    renderMatrix();
+  });
+
+  document.getElementById("addState").addEventListener("click", () => {
+    states.push({ name: `State ${states.length + 1}`, probability: 0 });
+    alternatives.forEach(alternative => alternative.values.push(0));
+    renderMatrix();
+  });
+
+  objectiveEl.addEventListener("change", calculate);
+  criterionEl.addEventListener("change", calculate);
+  rankEl.addEventListener("input", calculate);
+
+  function parseCsv(text) {
+    const rows = [];
+    let row = [], cell = "", quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === '"' && quoted && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (char === '"') quoted = !quoted;
+      else if (char === "," && !quoted) { row.push(cell.trim()); cell = ""; }
+      else if ((char === "\n" || char === "\r") && !quoted) {
+        if (char === "\r" && text[i + 1] === "\n") i++;
+        row.push(cell.trim());
+        if (row.some(value => value !== "")) rows.push(row);
+        row = []; cell = "";
+      } else cell += char;
+    }
+    row.push(cell.trim());
+    if (row.some(value => value !== "")) rows.push(row);
+    return rows;
+  }
+
+  document.getElementById("csvFile").addEventListener("change", async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+      const parsed = parseCsv(await file.text());
+      if (parsed.length < 2 || parsed[0].length < 2) {
+        throw new Error("CSV needs a header row and at least one alternative.");
+      }
+      const header = parsed[0];
+      const importedStates = header.slice(1).filter((_, index) =>
+        parsed.some(row => row[index + 1] !== undefined)
+      );
+      const importedAlternatives = parsed.slice(1).filter(row => row.length > 1);
+      if (!importedStates.length || !importedAlternatives.length) {
+        throw new Error("No states or alternatives found in the CSV.");
+      }
+      states = importedStates.map((name, index) => ({
+        name: name || `State ${index + 1}`,
+        probability: 1 / importedStates.length
+      }));
+      alternatives = importedAlternatives.map((row, index) => ({
+        name: row[0] || `Alternative ${index + 1}`,
+        values: states.map((_, col) => numberValue(row[col + 1]))
+      }));
+      renderMatrix();
+    } catch (error) {
+      alert(`Could not import CSV: ${error.message}`);
+    }
+    event.target.value = "";
+  });
+
+  document.getElementById("downloadCsv").addEventListener("click", () => {
+    const csv = [
+      ["Alternative", ...states.map(state => state.name)],
+      ...alternatives.map(alternative => [alternative.name, ...alternative.values])
+    ].map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\r\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    link.download = "decision-matrix-template.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
+
+  renderMatrix();
+})();
+</script>
+</body>
+</html>
